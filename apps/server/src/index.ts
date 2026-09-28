@@ -1,6 +1,7 @@
 import { getServerByName, routePartykitRequest, Server, type Connection } from "partyserver";
 import { CLOSE_KICKED, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, type CreateRoomResponse, type ServerMessage } from "@cardly/protocol";
 import type { sueca } from "@cardly/engine";
+import { allowedOrigins, MAX_CONNECTIONS, roomRequestAllowed } from "./gate";
 import { parseClientMessage } from "./parse";
 import { recordMatch, verifyAccessToken, type SupabaseEnv } from "./supabase";
 import {
@@ -18,8 +19,10 @@ import {
 
 export interface Env extends SupabaseEnv {
   Room: DurableObjectNamespace<RoomServer>;
-  /** Comma-separated list of web origins allowed to create rooms. */
+  /** Comma-separated list of web origins allowed to create and open rooms. */
   ALLOWED_ORIGINS: string;
+  /** Room creations per client IP. */
+  CREATE_LIMITER: RateLimit;
 }
 
 interface ConnState {
@@ -64,7 +67,9 @@ export class RoomServer extends Server<Env> {
     if (!this.room) {
       this.send(conn, { type: "ERROR", code: "INVALID_ROOM" });
       conn.close(4404, "INVALID_ROOM");
+      return;
     }
+    if ([...this.getConnections()].length > MAX_CONNECTIONS) conn.close(4429, "TOO_MANY_CONNECTIONS");
   }
 
   override async onMessage(conn: Connection<ConnState>, raw: string | ArrayBuffer): Promise<void> {
@@ -171,8 +176,7 @@ function newCode(): string {
 
 function corsHeaders(request: Request, env: Env): Record<string, string> {
   const origin = request.headers.get("Origin") ?? "";
-  const allowed = env.ALLOWED_ORIGINS.split(",").map((s) => s.trim());
-  if (!allowed.includes(origin)) return {};
+  if (!allowedOrigins(env.ALLOWED_ORIGINS).includes(origin)) return {};
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -189,6 +193,10 @@ export default {
       const cors = corsHeaders(request, env);
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
       if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: cors });
+      const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
+      if (!(await env.CREATE_LIMITER.limit({ key: ip })).success) {
+        return new Response("Too Many Requests", { status: 429, headers: cors });
+      }
       for (let attempt = 0; attempt < 5; attempt++) {
         const code = newCode();
         const stub = await getServerByName(env.Room, code);
@@ -201,6 +209,7 @@ export default {
       return new Response("Could not allocate a room code", { status: 503, headers: cors });
     }
 
+    if (!roomRequestAllowed(request, allowedOrigins(env.ALLOWED_ORIGINS))) return new Response("Not Found", { status: 404 });
     return (await routePartykitRequest(request, env)) ?? new Response("Not Found", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;

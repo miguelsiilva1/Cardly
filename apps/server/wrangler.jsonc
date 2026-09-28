@@ -6,6 +6,7 @@
     "bindings": [{ "name": "Room", "class_name": "RoomServer" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomServer"] }],
+  "ratelimits": [{ "name": "CREATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } }],
   "vars": {
     "ALLOWED_ORIGINS": "http://localhost:5173",
     "SUPABASE_URL": "https://fbvwjbcodioqbqhepexx.supabase.co"

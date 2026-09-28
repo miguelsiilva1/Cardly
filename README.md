@@ -22,7 +22,9 @@ docs/               Spec, phase plan and the full rule sources.
 - Timers run on the server through the Durable Object alarm: turn auto-play (Sueca: lowest-point legal card; Gringo: draw and discard), the Gringo draw lock after each discard, and the delay before the next hand or round.
 - Room state is saved to Durable Object storage after every change, so games survive eviction and restarts.
 - After 20 minutes without any action, the server closes the room's connections so it stops using free-plan compute time; players tap "Voltar à mesa" to reconnect. Idle rooms are deleted after 24 hours.
-- Each connection may send at most 15 messages per second.
+- Each connection may send at most 15 messages per second, and a room accepts at most 16 open connections.
+- The Worker only lets WebSocket upgrades from the allowed web origins into `/parties/room/<code>`; every other request to a room is refused. Room creation is limited to 10 per minute per IP (Workers rate limiting binding).
+- The web app is served with a strict Content Security Policy and security headers (`apps/web/vercel.json`). If the Worker is not on `*.workers.dev` or the Supabase project changes, update `connect-src` there.
 - A player can leave mid-match; the game pauses and the host either puts a bot in the seat or ends the match.
 - Login is optional (Supabase Auth, Google). A signed-in player sends their Supabase access token with `HELLO`; the Worker verifies it against the project's JWKS and links the seat to that user. When a Sueca match or a Gringo round ends with at least one signed-in player at the table, the Worker saves it through the `record_match` database function using the secret key. Clients can only read games they played (row level security).
 - Reconnection: on joining, the player gets a token stored in `localStorage`. Refreshing the page sends it back and restores the same seat and hand.
@@ -63,6 +65,7 @@ npm run typecheck   # all packages
 - `packages/engine/src/sueca/sueca.test.ts`: deck, ranking, points, trump, follow suit, trick winner, scoring (61/90/91/119/120), capote, bandeira, 60–60 rules, match end, full random matches, view leak checks.
 - `apps/server/src/room.test.ts`: lobby, host rules, start locking, stale actions, hidden-hand leak checks, reconnect, timers, message parsing.
 - `apps/server/src/history.test.ts`: history records for finished Sueca matches and Gringo rounds.
+- `apps/server/src/gate.test.ts`: which requests may reach a room (WebSocket only, valid code, allowed origin).
 - `supabase/tests/rls.sql`: row level security checks. Paste into the Supabase SQL editor; it rolls back and ends with `RLS OK`.
 
 ## Environment variables

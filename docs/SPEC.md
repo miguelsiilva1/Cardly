@@ -198,6 +198,17 @@ Implementation decisions:
 - The history write runs after the game state is saved and never blocks or fails the game.
 - "Profile" = the Google name and a history page. No editable profile yet.
 
+### Phase 4 — Security pass + deploy
+1. Security pass. Findings and fixes:
+   - Plain HTTP to `/parties/room/<name>` reached the room's internal create endpoint, so anyone could create rooms with any name, and a GET revealed whether a room exists. The Worker now routes only WebSocket upgrades to a well-formed room code.
+   - WebSockets were accepted from any website. The Worker now checks `Origin` against `ALLOWED_ORIGINS` (browsers always send it).
+   - `POST /api/rooms` had no limit (CORS does not stop scripts). Now 10 per minute per IP.
+   - Unlimited sockets per room. Now at most 16.
+   - No security headers on the web app. Now CSP (`script-src 'self'`, `connect-src` limited to Supabase and `*.workers.dev`), `frame-ancestors 'none'`, nosniff, referrer policy, HSTS.
+   - Checked and fine: no secrets in git history, `npm audit` clean, RLS and write path from phase 3, per-player views, message size and rate limits.
+   → verify: gate tests; probes against `wrangler dev` (HTTP to rooms 404, foreign origin 404, 11th room in a minute 429); built app under the CSP has no violations.
+2. Deploy Worker (Cloudflare) and web (Vercel), set production origins, Supabase redirect URLs and the Worker secret. → verify: a full game and a history row on the production URLs.
+
 ## 9. Realtime backend decision
 
 Hard constraint: **zero cost**, no credit card.
