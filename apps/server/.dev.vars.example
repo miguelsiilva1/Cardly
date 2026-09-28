@@ -1,0 +1,3 @@
+# Copy to .dev.vars (gitignored) for `wrangler dev`. In production use `wrangler secret put`.
+# Supabase > Project Settings > API Keys > secret key (or legacy service_role). Never ship it to the web app.
+SUPABASE_SECRET_KEY=
