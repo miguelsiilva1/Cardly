@@ -1,0 +1,12 @@
+{
+  "name": "cardly-server",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "durable_objects": {
+    "bindings": [{ "name": "Room", "class_name": "RoomServer" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomServer"] }],
+  "vars": {
+    "ALLOWED_ORIGINS": "http://localhost:5173"
+  }
+}
