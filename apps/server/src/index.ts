@@ -2,6 +2,7 @@ import { getServerByName, routePartykitRequest, Server, type Connection } from "
 import { CLOSE_KICKED, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, type CreateRoomResponse, type ServerMessage } from "@cardly/protocol";
 import type { sueca } from "@cardly/engine";
 import { parseClientMessage } from "./parse";
+import { recordMatch, verifyAccessToken, type SupabaseEnv } from "./supabase";
 import {
   createRoom,
   handleAlarm,
@@ -15,7 +16,7 @@ import {
   type RoomState,
 } from "./room";
 
-export interface Env {
+export interface Env extends SupabaseEnv {
   Room: DurableObjectNamespace<RoomServer>;
   /** Comma-separated list of web origins allowed to create rooms. */
   ALLOWED_ORIGINS: string;
@@ -73,7 +74,15 @@ export class RoomServer extends Server<Env> {
       this.send(conn, { type: "ERROR", code: "INVALID_MESSAGE" });
       return;
     }
-    const outcome = handleMessage(this.room, conn.state?.playerId ?? null, msg, deps());
+    let userId: string | null = null;
+    if (msg.type === "HELLO" && msg.accessToken) {
+      userId = await verifyAccessToken(this.env, msg.accessToken);
+      if (!userId) {
+        this.send(conn, { type: "ERROR", code: "AUTH_FAILED" });
+        return;
+      }
+    }
+    const outcome = handleMessage(this.room, conn.state?.playerId ?? null, msg, deps(), userId);
     if (outcome.bindPlayerId) conn.setState({ playerId: outcome.bindPlayerId });
     for (const m of outcome.reply) this.send(conn, m);
     await this.commit(outcome);
@@ -126,6 +135,8 @@ export class RoomServer extends Server<Env> {
     if (outcome.room === this.room) return;
     this.room = outcome.room;
     await this.save();
+    // History is best effort: a failed write never blocks the game.
+    if (outcome.record) this.ctx.waitUntil(recordMatch(this.env, outcome.record).catch((e) => console.error(e)));
     if (outcome.broadcast) this.broadcastState(outcome.events);
   }
 

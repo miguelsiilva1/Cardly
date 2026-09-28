@@ -21,7 +21,13 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     case "HELLO":
       if (!str(m.name, 100)) return null;
       if (m.token !== undefined && !str(m.token, 200)) return null;
-      return m.token === undefined ? { type: "HELLO", name: m.name } : { type: "HELLO", name: m.name, token: m.token };
+      if (m.accessToken !== undefined && !str(m.accessToken, 3000)) return null;
+      return {
+        type: "HELLO",
+        name: m.name,
+        ...(m.token === undefined ? {} : { token: m.token }),
+        ...(m.accessToken === undefined ? {} : { accessToken: m.accessToken }),
+      };
     case "TAKE_SEAT":
       return int(m.seat) ? { type: "TAKE_SEAT", seat: m.seat } : null;
     case "SET_READY":

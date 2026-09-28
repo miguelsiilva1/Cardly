@@ -1,6 +1,6 @@
 # Cardly
 
-Online multiplayer Portuguese card games for friends in private rooms. **Sueca** and **Gringo** are playable; the host picks the game in the lobby. Login and match history follow (see [docs/SPEC.md](docs/SPEC.md)).
+Online multiplayer Portuguese card games for friends in private rooms. **Sueca** and **Gringo** are playable; the host picks the game in the lobby. Players can sign in with Google to keep a history of their games; guests play with just a nickname (see [docs/SPEC.md](docs/SPEC.md)).
 
 ## Layout
 
@@ -9,6 +9,7 @@ packages/engine     Pure TypeScript rules (no I/O). Sueca and Gringo engines, pe
 packages/protocol   Message types, error codes and constants shared by server and web.
 apps/server         Cloudflare Worker. One Durable Object per room (partyserver), WebSockets.
 apps/web            React + Vite client (Portuguese UI).
+supabase/           Database migration (history tables, RLS) and RLS checks.
 docs/               Spec, phase plan and the full rule sources.
 ```
 
@@ -23,6 +24,7 @@ docs/               Spec, phase plan and the full rule sources.
 - After 20 minutes without any action, the server closes the room's connections so it stops using free-plan compute time; players tap "Voltar à mesa" to reconnect. Idle rooms are deleted after 24 hours.
 - Each connection may send at most 15 messages per second.
 - A player can leave mid-match; the game pauses and the host either puts a bot in the seat or ends the match.
+- Login is optional (Supabase Auth, Google). A signed-in player sends their Supabase access token with `HELLO`; the Worker verifies it against the project's JWKS and links the seat to that user. When a Sueca match or a Gringo round ends with at least one signed-in player at the table, the Worker saves it through the `record_match` database function using the secret key. Clients can only read games they played (row level security).
 - Reconnection: on joining, the player gets a token stored in `localStorage`. Refreshing the page sends it back and restores the same seat and hand.
 
 ## Requirements
@@ -60,13 +62,25 @@ npm run typecheck   # all packages
 
 - `packages/engine/src/sueca/sueca.test.ts`: deck, ranking, points, trump, follow suit, trick winner, scoring (61/90/91/119/120), capote, bandeira, 60–60 rules, match end, full random matches, view leak checks.
 - `apps/server/src/room.test.ts`: lobby, host rules, start locking, stale actions, hidden-hand leak checks, reconnect, timers, message parsing.
+- `apps/server/src/history.test.ts`: history records for finished Sueca matches and Gringo rounds.
+- `supabase/tests/rls.sql`: row level security checks. Paste into the Supabase SQL editor; it rolls back and ends with `RLS OK`.
 
 ## Environment variables
 
 | Where | Name | Meaning |
 |---|---|---|
 | `apps/web/.env.local` | `VITE_SERVER_URL` | Origin of the game server, e.g. `https://cardly-server.<account>.workers.dev` |
+| `apps/web/.env.local` | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | Supabase project URL and publishable (anon) key. Leave empty to run without login |
 | `apps/server/wrangler.jsonc` | `ALLOWED_ORIGINS` | Comma-separated web origins allowed to create rooms (CORS) |
+| `apps/server/wrangler.jsonc` | `SUPABASE_URL` | Supabase project URL, used to verify access tokens and save history |
+| `apps/server/.dev.vars` / `wrangler secret put` | `SUPABASE_SECRET_KEY` | Supabase secret (service_role) key. Server only; without it history is not saved |
+
+## Supabase setup
+
+1. Create a free Supabase project. In Authentication > Providers, enable Google with an OAuth client from Google Cloud (authorized redirect URI: `https://<ref>.supabase.co/auth/v1/callback`).
+2. In Authentication > URL Configuration, set the Site URL to the web origin (`http://localhost:5173` locally) and add the production origin to the Redirect URLs.
+3. In the SQL editor, run `supabase/migrations/20260928000000_history.sql`, then `supabase/tests/rls.sql` (expect `RLS OK`).
+4. Put the URL and anon key in `apps/web/.env.local`, the URL in `wrangler.jsonc`, and the secret key in `apps/server/.dev.vars` (copy `.dev.vars.example`).
 
 ## Deployment (free tiers)
 
@@ -74,12 +88,13 @@ npm run typecheck   # all packages
 
 1. Create a free Cloudflare account (no card needed).
 2. In `apps/server/wrangler.jsonc`, set `ALLOWED_ORIGINS` to your Vercel URL, e.g. `https://cardly.vercel.app`.
-3. Deploy:
+3. Deploy and set the Supabase secret key:
 
    ```sh
    cd apps/server
    npx wrangler login
    npx wrangler deploy
+   npx wrangler secret put SUPABASE_SECRET_KEY
    ```
 
 4. Note the `*.workers.dev` URL it prints.
@@ -88,7 +103,7 @@ npm run typecheck   # all packages
 
 1. Import the repository in Vercel.
 2. Root directory: `apps/web`. Framework: Vite. Build command `npm run build`, output `dist`. Install command: `npm install` (run from the repository root so workspaces resolve; set "Include files outside the root directory" on).
-3. Environment variable `VITE_SERVER_URL` = the Worker URL from above.
+3. Environment variables `VITE_SERVER_URL` = the Worker URL from above, plus `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
 4. `apps/web/vercel.json` rewrites all paths to `index.html` so `/sala/<code>` links work.
 
 ## Sueca rules implemented

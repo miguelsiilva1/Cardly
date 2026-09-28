@@ -189,6 +189,15 @@ Each card carries `knownTo: playerId[]`. Updated on peek, draw, swap, Queen, Jac
 2. Server verifies Supabase JWT on connect; writes finished Sueca matches and Gringo rounds. → verify: rows written after a game.
 3. Web: login, profile, history page. → verify: history visible after playing.
 
+Implementation decisions:
+- Login is optional. The access token is sent only with a new `HELLO`; a reconnect by session token keeps the user already linked to the seat. An invalid token is rejected with `AUTH_FAILED` instead of silently joining as a guest.
+- The Worker verifies tokens locally against `<SUPABASE_URL>/auth/v1/.well-known/jwks.json` (issuer and `authenticated` audience checked).
+- One `matches` row per finished Sueca match or finished Gringo round, with one `match_players` row per seat (name at the time, user id for signed-in players, bots flagged). Sueca score = team riscos; Gringo score = card total.
+- Nothing is saved when no signed-in player sat at the table: nobody could read it.
+- Only the `record_match` function (granted to `service_role` only) writes. Clients read their own games and their table mates' rows through RLS; they cannot write anything.
+- The history write runs after the game state is saved and never blocks or fails the game.
+- "Profile" = the Google name and a history page. No editable profile yet.
+
 ## 9. Realtime backend decision
 
 Hard constraint: **zero cost**, no credit card.

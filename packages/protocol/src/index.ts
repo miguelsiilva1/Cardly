@@ -22,7 +22,8 @@ export const SEATS: Record<GameKind, number> = { sueca: 4, gringo: 6 };
 // ---------- client → server ----------
 
 export type ClientMessage =
-  | { type: "HELLO"; name: string; token?: string }
+  /** `accessToken`: Supabase session JWT of a signed-in player, so finished games go to their history. */
+  | { type: "HELLO"; name: string; token?: string; accessToken?: string }
   | { type: "TAKE_SEAT"; seat: number }
   | { type: "SET_READY"; ready: boolean }
   | { type: "UPDATE_SETTINGS"; settings: Partial<Pick<sueca.SuecaRules, "targetRisks" | "tieAt60Rule" | "capoteRule" | "turnTimerSeconds">> }
@@ -111,6 +112,8 @@ export type ErrorCode =
   | gringo.GringoError
   | "INVALID_MESSAGE"
   | "INVALID_NAME"
+  /** The Supabase session sent with HELLO is invalid or expired. */
+  | "AUTH_FAILED"
   | "INVALID_ROOM"
   | "ROOM_FULL"
   | "MATCH_ALREADY_STARTED"

@@ -12,6 +12,7 @@ import {
   type ServerMessage,
   type Vacancy,
 } from "@cardly/protocol";
+import type { MatchRecord } from "./supabase";
 
 /** Rooms nobody touched for this long are deleted. */
 export const ROOM_TTL_MS = 24 * 60 * 60 * 1000;
@@ -33,6 +34,8 @@ export interface Player {
   ready: boolean;
   continued: boolean;
   bot?: boolean;
+  /** Supabase user id of a signed-in player. Server only. */
+  userId?: string;
 }
 
 export interface RoomState {
@@ -74,6 +77,8 @@ export interface Outcome {
   close?: boolean;
   /** Close every connection of this player (removed by the host). */
   kickedPlayerId?: string;
+  /** A Sueca match or Gringo round just finished with a signed-in player at the table: save it. */
+  record?: MatchRecord;
 }
 
 export function createRoom(code: string, now: number): RoomState {
@@ -150,7 +155,46 @@ function applyGame(room: RoomState, t: sueca.Transition, now: number): Outcome {
     now,
     t.events.some((e) => e.type === "TRICK_COMPLETED"),
   );
-  return changed(room, t.events);
+  return withRecord(changed(room, t.events), suecaRecord(room, t.events));
+}
+
+const withRecord = (o: Outcome, record: MatchRecord | null): Outcome => (record ? { ...o, record } : o);
+
+/** Seated players as history rows, or null when nobody signed in would see it. */
+function recordPlayers(room: RoomState, row: (seat: number) => { team: "A" | "B" | null; score: number; won: boolean }) {
+  const seated = room.players.filter((p) => p.seat !== null).sort((a, b) => a.seat! - b.seat!);
+  if (!seated.some((p) => p.userId)) return null;
+  return seated.map((p) => ({ seat: p.seat!, name: p.name, user_id: p.userId ?? null, bot: !!p.bot, ...row(p.seat!) }));
+}
+
+function suecaRecord(room: RoomState, events: sueca.SuecaEvent[]): MatchRecord | null {
+  const done = events.find((e) => e.type === "MATCH_COMPLETED");
+  const s = room.sueca;
+  if (done?.type !== "MATCH_COMPLETED" || !s) return null;
+  const players = recordPlayers(room, (seat) => {
+    const team = sueca.teamOf(seat);
+    return { team, score: done.risks[team], won: team === done.winner };
+  });
+  if (!players) return null;
+  return {
+    game: "sueca",
+    room_code: room.code,
+    summary: { risks: done.risks, targetRisks: s.rules.targetRisks, hands: s.handResults.length },
+    players,
+  };
+}
+
+function gringoRecord(room: RoomState, prev: gringo.GringoState | null): MatchRecord | null {
+  const r = room.gringo?.result;
+  if (prev?.phase === "ROUND_RESULT" || room.gringo?.phase !== "ROUND_RESULT" || !r) return null;
+  const players = recordPlayers(room, (seat) => ({ team: null, score: r.totals[seat]!, won: r.winners.includes(seat) }));
+  if (!players) return null;
+  return {
+    game: "gringo",
+    room_code: room.code,
+    summary: { round: r.roundNumber, reason: r.reason, caller: r.caller },
+    players,
+  };
 }
 
 /** Extra time a player keeps on their turn when a match reopens the draw lock. */
@@ -220,7 +264,7 @@ function applyGringo(room: RoomState, next: gringo.GringoState, deps: Deps): Out
   room.gringo = next;
   botsPeek(room, deps.rng);
   scheduleGringo(room, deps.now, prev);
-  return changed(room);
+  return withRecord(changed(room), gringoRecord(room, prev));
 }
 
 function gringoAction(
@@ -255,20 +299,22 @@ export const TIMER_OPTIONS: readonly number[] = [0, 15, 30, 60];
 const WINDOW_OPTIONS: readonly number[] = gringo.ABILITY_WINDOW_OPTIONS;
 const GRINGO_TIMER_OPTIONS: readonly number[] = gringo.TURN_TIMER_OPTIONS;
 
+/** `userId`: verified Supabase user of the sender, only read by HELLO. */
 export function handleMessage(
   input: RoomState,
   playerId: string | null,
   msg: ClientMessage,
   deps: Deps,
+  userId: string | null = null,
 ): Outcome {
-  const outcome = apply(input, playerId, msg, deps);
+  const outcome = apply(input, playerId, msg, deps, userId);
   // A rejected action changes nothing: hand back the same object so the
   // caller skips the storage write. Spammed invalid actions stay cheap.
   if (!outcome.broadcast) return { ...outcome, room: input };
   return outcome;
 }
 
-function apply(input: RoomState, playerId: string | null, msg: ClientMessage, deps: Deps): Outcome {
+function apply(input: RoomState, playerId: string | null, msg: ClientMessage, deps: Deps, userId: string | null): Outcome {
   const room: RoomState = structuredClone(input);
   room.lastActivity = deps.now;
 
@@ -294,6 +340,7 @@ function apply(input: RoomState, playerId: string | null, msg: ClientMessage, de
       seat: freeSeat(room),
       ready: false,
       continued: false,
+      ...(userId ? { userId } : {}),
     };
     room.players.push(player);
     room.hostId ??= player.id;

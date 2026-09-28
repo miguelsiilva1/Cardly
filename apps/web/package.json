@@ -12,6 +12,7 @@
   "dependencies": {
     "@cardly/engine": "*",
     "@cardly/protocol": "*",
+    "@supabase/supabase-js": "^2.117.2",
     "partysocket": "^1.3.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"

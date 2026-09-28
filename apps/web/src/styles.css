@@ -1902,3 +1902,127 @@ select {
     transition-duration: 0ms !important;
   }
 }
+
+/* ---------- account and history ---------- */
+
+.account {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--paper-edge);
+  text-align: center;
+}
+
+.account__who {
+  font-weight: 500;
+}
+
+.account__links {
+  display: flex;
+  gap: 4px;
+}
+
+.account__hint,
+.join-room__who {
+  font-size: 0.9rem;
+  color: var(--graphite-soft);
+}
+
+.history {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  justify-items: center;
+  padding: calc(16px + env(safe-area-inset-top)) var(--gutter) calc(24px + env(safe-area-inset-bottom));
+}
+
+.history__head {
+  width: min(100%, 520px);
+  display: grid;
+  gap: 4px;
+  color: var(--on-felt);
+}
+
+.history__back {
+  justify-self: start;
+  color: var(--on-felt);
+}
+
+.history__who,
+.history__msg {
+  color: var(--on-felt-muted);
+}
+
+.history__list {
+  width: min(100%, 520px);
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  padding: 0;
+}
+
+.history__item {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+}
+
+.history__line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.history__meta {
+  font-size: 0.9rem;
+  color: var(--graphite-soft);
+}
+
+.history__badge {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  border: 1.5px solid var(--graphite-soft);
+  color: var(--graphite-soft);
+}
+
+.history__badge--won {
+  border-color: var(--felt);
+  background: var(--felt);
+  color: var(--on-felt);
+}
+
+.history__teams,
+.history__rank {
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.history__teams li,
+.history__rank li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.history__team {
+  padding-left: 8px;
+  border-left: 4px solid;
+}
+
+.history__team--a {
+  border-color: var(--team-a);
+}
+
+.history__team--b {
+  border-color: var(--team-b);
+}
+
+.history__winner {
+  font-weight: 700;
+}

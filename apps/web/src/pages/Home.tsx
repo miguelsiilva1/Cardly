@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { ROOM_CODE_LENGTH } from "@cardly/protocol";
 import { navigate } from "../App";
 import { createRoom } from "../net/api";
+import { displayName, signIn, signOut, supabase, useSession } from "../net/auth";
 import { CardFace } from "../ui/Card";
 import { RulesButton } from "../ui/RulesDialog";
 
@@ -9,6 +10,7 @@ export function Home() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const session = useSession();
 
   async function onCreate() {
     setBusy(true);
@@ -75,6 +77,31 @@ export function Home() {
           <p className="notice" role="alert">
             {problem}
           </p>
+        )}
+
+        {supabase && session !== undefined && (
+          <div className="account">
+            {session ? (
+              <>
+                <p className="account__who">Olá, {displayName(session)}</p>
+                <div className="account__links">
+                  <button type="button" className="btn btn--quiet" onClick={() => navigate("/historico")}>
+                    Histórico
+                  </button>
+                  <button type="button" className="btn btn--quiet" onClick={signOut}>
+                    Sair
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <button type="button" className="btn btn--wide" onClick={signIn}>
+                  Entrar com Google
+                </button>
+                <p className="account__hint">Opcional. Guarda o histórico dos teus jogos.</p>
+              </>
+            )}
+          </div>
         )}
 
         <div className="home__rules">

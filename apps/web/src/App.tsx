@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { History } from "./pages/History";
 import { Home } from "./pages/Home";
 import { RoomPage } from "./pages/RoomPage";
 
@@ -20,5 +21,6 @@ export function App() {
 
   const match = ROOM_PATH.exec(path);
   if (match) return <RoomPage key={match[1]} code={match[1]!.toUpperCase()} />;
+  if (path === "/historico") return <History />;
   return <Home />;
 }

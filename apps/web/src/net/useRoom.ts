@@ -3,6 +3,7 @@ import PartySocket from "partysocket";
 import type { gringo, sueca } from "@cardly/engine";
 import { CLOSE_KICKED, PARTY_NAME, type ClientMessage, type ErrorCode, type RoomSnapshot, type ServerMessage } from "@cardly/protocol";
 import { SERVER_HOST, storage } from "./api";
+import { accessToken } from "./auth";
 
 /** "paused": the server closed an idle room's connections; we wait for the player to come back. */
 export type Connection = "connecting" | "open" | "reconnecting" | "paused" | "kicked" | "gone";
@@ -25,7 +26,7 @@ export interface RoomClient {
   clockOffset: number;
   /** True between sending a game action and the next STATE; blocks double plays. */
   pending: boolean;
-  join: (name: string) => void;
+  join: (name: string) => Promise<void>;
   send: (msg: ClientMessage) => void;
   resume: () => void;
   /** Leave the room (lobby) or the table (mid-match). Final: the seat is not kept. */
@@ -125,9 +126,11 @@ export function useRoom(code: string): RoomClient {
   }, []);
 
   const join = useCallback(
-    (name: string) => {
+    async (name: string) => {
       storage.setName(name);
-      send({ type: "HELLO", name });
+      // Signed-in players send their session so finished games go to their history.
+      const token = await accessToken();
+      send({ type: "HELLO", name, ...(token ? { accessToken: token } : {}) });
     },
     [send],
   );

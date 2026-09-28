@@ -12,6 +12,7 @@
   "dependencies": {
     "@cardly/engine": "*",
     "@cardly/protocol": "*",
+    "jose": "^6.2.12",
     "partyserver": "^0.5.10"
   },
   "devDependencies": {

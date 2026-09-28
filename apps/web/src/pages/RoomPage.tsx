@@ -3,6 +3,7 @@ import { NAME_MAX_LENGTH } from "@cardly/protocol";
 import { navigate } from "../App";
 import { ERROR_TEXT } from "../i18n";
 import { storage } from "../net/api";
+import { displayName, useSession } from "../net/auth";
 import { useRoom, type RoomClient } from "../net/useRoom";
 import { GringoTable } from "./GringoTable";
 import { Lobby } from "./Lobby";
@@ -79,12 +80,18 @@ export function RoomPage({ code }: { code: string }) {
 
 function JoinForm({ client, code }: { client: RoomClient; code: string }) {
   const [name, setName] = useState(storage.getName);
+  const session = useSession();
   const resuming = !!storage.getToken(code) && client.error === null;
+
+  // First visit while signed in: suggest the Google first name.
+  useEffect(() => {
+    if (session) setName((n) => n || displayName(session).split(" ")[0]!.slice(0, NAME_MAX_LENGTH));
+  }, [session]);
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     const clean = name.trim();
-    if (clean) client.join(clean);
+    if (clean) void client.join(clean);
   }
 
   return (
@@ -109,6 +116,7 @@ function JoinForm({ client, code }: { client: RoomClient; code: string }) {
             <button type="submit" className="btn btn--primary btn--wide" disabled={client.connection !== "open"}>
               {client.connection === "open" ? "Entrar na sala" : "A ligar…"}
             </button>
+            {session && <p className="join-room__who">Com a conta {displayName(session)}. Os jogos ficam no teu histórico.</p>}
           </>
         )}
       </form>

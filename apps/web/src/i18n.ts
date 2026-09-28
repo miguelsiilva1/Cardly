@@ -9,6 +9,7 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
   MUST_FOLLOW_SUIT: "Não podes jogar essa carta porque tens cartas do naipe pedido.",
   INVALID_MESSAGE: "Pedido inválido. Recarrega a página.",
   INVALID_NAME: "Escreve um nome com 1 a 20 caracteres.",
+  AUTH_FAILED: "A tua sessão expirou. Sai e entra outra vez com o Google.",
   INVALID_ROOM: "Esta sala não existe ou já expirou.",
   ROOM_FULL: "A sala já tem quatro jogadores.",
   MATCH_ALREADY_STARTED: "O jogo nesta sala já começou.",
