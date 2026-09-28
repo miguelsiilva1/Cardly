@@ -41,7 +41,7 @@ export function Home() {
           <CardFace id="7H" className="home__c home__c--4" />
         </div>
         <h1 className="home__title">Cardly</h1>
-        <p className="home__lede">Sueca com os amigos, cada um em sua casa.</p>
+        <p className="home__lede">Sueca e Gringo com os amigos, cada um em sua casa.</p>
       </section>
 
       <section className="home__actions paper">
@@ -77,7 +77,10 @@ export function Home() {
           </p>
         )}
 
-        <RulesButton className="home__rules" />
+        <div className="home__rules">
+          <RulesButton game="sueca" label="Regras da Sueca" />
+          <RulesButton game="gringo" label="Regras do Gringo" />
+        </div>
       </section>
     </main>
   );

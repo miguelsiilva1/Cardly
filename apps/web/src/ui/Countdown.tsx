@@ -2,14 +2,15 @@ import { useEffect, useState } from "react";
 
 /** Seconds left until a server deadline. The server decides; this only displays. */
 export function useSecondsLeft(deadline: number | null, clockOffset: number): number | null {
-  const [now, setNow] = useState(() => Date.now());
+  // The tick only re-renders; the time is read fresh so a new deadline is right on its first frame.
+  const [, setTick] = useState(0);
   useEffect(() => {
     if (deadline === null) return;
-    const t = setInterval(() => setNow(Date.now()), 250);
+    const t = setInterval(() => setTick((n) => n + 1), 250);
     return () => clearInterval(t);
   }, [deadline]);
   if (deadline === null) return null;
-  return Math.max(0, Math.ceil((deadline - (now + clockOffset)) / 1000));
+  return Math.max(0, Math.ceil((deadline - (Date.now() + clockOffset)) / 1000));
 }
 
 export type Urgency = "calm" | "warn" | "danger";
@@ -20,6 +21,12 @@ interface ClockProps {
   deadline: number | null;
   clockOffset: number;
   total: number;
+}
+
+interface TurnBarProps extends ClockProps {
+  label?: string;
+  /** Shown in the last seconds: what the server does if time runs out. */
+  warn?: string;
 }
 
 /** Round seconds badge with a draining ring, for another player's name plate. */
@@ -48,32 +55,38 @@ export function TurnClock({ deadline, clockOffset, total }: ClockProps) {
 }
 
 /** Full-width bar above my hand while it is my turn. Also puts the countdown in the tab title. */
-export function MyTurnBar({ deadline, clockOffset, total }: ClockProps) {
+export function MyTurnBar({
+  deadline,
+  clockOffset,
+  total,
+  label = "É a tua vez",
+  warn = "Se não jogares, joga-se por ti a carta mais baixa.",
+}: TurnBarProps) {
   const secs = useSecondsLeft(deadline, clockOffset);
 
   useEffect(() => {
     if (secs === null) return;
     const prev = document.title;
-    document.title = `(${secs}s) É a tua vez`;
+    document.title = `(${secs}s) ${label}`;
     return () => {
       document.title = prev;
     };
-  }, [secs]);
+  }, [secs, label]);
 
   if (secs === null || total <= 0) {
-    return <p className="myturn myturn--calm">É a tua vez</p>;
+    return <p className="myturn myturn--calm">{label}</p>;
   }
   const level = urgencyOf(secs);
   return (
     <div className={`myturn myturn--${level}`} role="timer" aria-live={level === "danger" ? "assertive" : "off"}>
       <div className="myturn__row">
-        <span className="myturn__label">É a tua vez</span>
+        <span className="myturn__label">{label}</span>
         <span className="myturn__secs">{secs}s</span>
       </div>
       <span className="myturn__track" aria-hidden="true">
         <span className="myturn__bar" style={{ transform: `scaleX(${Math.min(1, secs / total)})` }} />
       </span>
-      {level === "danger" && <span className="myturn__warn">Se não jogares, joga-se por ti a carta mais baixa.</span>}
+      {level === "danger" && <span className="myturn__warn">{warn}</span>}
     </div>
   );
 }

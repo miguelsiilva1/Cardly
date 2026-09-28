@@ -19,15 +19,6 @@ const TRICK_HOLD_MS = 1600;
 
 const SUIT_ORDER: sueca.Suit[] = ["spades", "hearts", "clubs", "diamonds"];
 
-/** Who played the trump card, and in which round. Null while it is still in the dealer's hand. */
-function trumpPlayed(view: sueca.SuecaView): { seat: number; round: number } | null {
-  for (const t of [...view.completedTricks, view.trick]) {
-    const p = t.plays.find((x) => x.cardId === view.trumpCardId);
-    if (p) return { seat: p.seat, round: t.number };
-  }
-  return null;
-}
-
 function sortHand(ids: string[], trump: sueca.Suit): string[] {
   // Trump last, suits alternating colour, strongest first inside a suit.
   const order = [...SUIT_ORDER.filter((s) => s !== trump), trump];
@@ -65,13 +56,13 @@ export function Table({ client }: { client: RoomClient }) {
   const playerAt = (seat: number) => room.players.find((p) => p.seat === seat)!;
   const posOf = (seat: number): Pos => REL_POS[(seat - mySeat + 4) % 4]!;
 
-  const last = view.completedTricks.at(-1);
+  const last = view.lastTrick;
   const showLast = !!last && view.trick.plays.length === 0 && holdUntil > Date.now();
   const plays = showLast ? last.plays : view.trick.plays;
   const winnerSeat = showLast ? last.winnerSeat : null;
   const trickNumber = Math.min(view.trick.number, 10);
   const myTurn = view.phase === "PLAYING" && view.turnSeat === mySeat;
-  const played = trumpPlayed(view);
+  const played = view.trumpPlayed;
   let trumpWhere: string;
   if (played) {
     trumpWhere =
@@ -106,9 +97,9 @@ export function Table({ client }: { client: RoomClient }) {
           </div>
           <div className="scorebar__tools">
             <span className="trick-count">Ronda {trickNumber} de 10</span>
-            <HistoryButton view={view} playerAt={playerAt} />
-            <RulesButton />
-            <LeaveButton client={client} />
+            <LastTrickButton view={view} playerAt={playerAt} />
+            <RulesButton game="sueca" />
+            <LeaveButton client={client} inMatch={view.phase !== "MATCH_RESULT"} />
           </div>
         </div>
       </header>
@@ -329,9 +320,8 @@ function MyHand({
   );
 }
 
-function LeaveButton({ client }: { client: RoomClient }) {
+export function LeaveButton({ client, inMatch }: { client: RoomClient; inMatch: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
-  const inMatch = client.sueca?.phase !== "MATCH_RESULT";
   return (
     <>
       <button type="button" className="btn btn--quiet" onClick={() => ref.current?.showModal()}>
@@ -367,7 +357,7 @@ function LeaveButton({ client }: { client: RoomClient }) {
 }
 
 /** Someone left mid-match. The host decides; everyone else waits. */
-function PausedSheet({ client }: { client: RoomClient }) {
+export function PausedSheet({ client }: { client: RoomClient }) {
   const room = client.room!;
   const isHost = room.hostId === client.playerId;
   const names = room.vacancies.map((v) => v.name);
@@ -385,8 +375,8 @@ function PausedSheet({ client }: { client: RoomClient }) {
           <>
             <p className="result__meta">
               {names.length === 1
-                ? "Podes pôr um bot no lugar e continuar a mão, ou terminar o jogo e voltar à sala."
-                : "Podes pôr bots nos lugares vazios e continuar a mão, ou terminar o jogo e voltar à sala."}
+                ? "Podes pôr um bot no lugar e continuar, ou terminar o jogo e voltar à sala."
+                : "Podes pôr bots nos lugares vazios e continuar, ou terminar o jogo e voltar à sala."}
             </p>
             <div className="result__actions">
               <button type="button" className="btn btn--primary" onClick={() => client.send({ type: "REPLACE_WITH_BOT" })}>
@@ -407,27 +397,29 @@ function PausedSheet({ client }: { client: RoomClient }) {
   );
 }
 
-function HistoryButton({ view, playerAt }: { view: sueca.SuecaView; playerAt: (s: number) => PublicPlayer }) {
+/** Like at a real table: you may look at the last round of cards, never earlier ones. */
+function LastTrickButton({ view, playerAt }: { view: sueca.SuecaView; playerAt: (s: number) => PublicPlayer }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const tricks = view.lastTrick ? [view.lastTrick] : [];
   return (
     <>
       <button
         type="button"
         className="btn btn--quiet"
         onClick={() => ref.current?.showModal()}
-        disabled={view.completedTricks.length === 0}
+        disabled={tricks.length === 0}
       >
-        Rondas
+        Última ronda
       </button>
       <dialog ref={ref} className="sheet" aria-labelledby="history-title">
         <div className="sheet__head">
-          <h2 id="history-title">Rondas desta mão</h2>
+          <h2 id="history-title">Última ronda</h2>
           <button type="button" className="btn btn--quiet" onClick={() => ref.current?.close()}>
             Fechar
           </button>
         </div>
         <ol className="sheet__body history">
-          {view.completedTricks.map((t) => (
+          {tricks.map((t) => (
             <li key={t.number} className="history__trick">
               <p className="history__title">
                 Ronda {t.number}: ganhou {playerAt(t.winnerSeat).name}, {t.points} pontos

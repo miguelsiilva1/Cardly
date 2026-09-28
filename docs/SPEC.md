@@ -21,7 +21,7 @@ This spec records the decisions and clarifications on top of those files. Where 
 - Players survive refresh / network drops (reconnection).
 - Later: login and match history via Supabase.
 
-Non-goals (v1): bots, public matchmaking, spectators, chat during active hands, cumulative Gringo scoring.
+Non-goals (v1): public matchmaking, spectators, chat during active hands, cumulative Gringo scoring.
 
 ## 2. Users and language
 
@@ -53,7 +53,7 @@ apps/web  ──WebSocket──►  Room Durable Object  ──uses──►  pa
 - Each room is one Durable Object holding one engine state. A Durable Object handles one message at a time, so races (e.g. two Gringo match-discards) resolve by server arrival order.
 - After every accepted action the state is written to Durable Object storage, so it survives eviction and restarts.
 - Server builds a **per-player view** (`publicState + ownPrivateState`) for every broadcast and reconnect. The full state never leaves the server.
-- Every action carries the room's `stateVersion` (and for Gringo the `discardEventId`); stale actions are rejected.
+- Sueca actions carry the game `version`; stale actions are rejected. Gringo actions name stable slot ids (a slot keeps its id while cards swap in and out of it), and the time-critical ones (match, claim ability) carry the discard event id they answer, so a late one is rejected without blocking unrelated moves.
 - Timers (turn timer, ability window) live on the server only, via the Durable Object Alarms API. One alarm per object, so the room stores all deadlines and sets the alarm to the earliest one.
 
 ### Rooms
@@ -137,11 +137,29 @@ A = 1, 2–10 = face value, J = 13, Q = 13, black K = 13, **red K = −2**, Joke
 - Rounds are standalone. No cumulative score, no target.
 
 ### Timers
-- Turn timer 30s. On expiry: draw (if not drawn) and discard the drawn card, no ability, no swap.
+- Turn timer 60s by default; host picks 30, 45, 60, 90 or no limit. The same length applies to the peek and to finishing a claimed ability.
+- Turn expiry: draw (if not drawn) and discard the drawn card, no ability, no swap.
+- Peek expiry: 2 random cards for whoever has not picked.
 - Pending ability on expiry: cancelled (Black King: declined).
+- The draw lock after a discard is 3s by default (host picks 2, 3 or 5). A turn's timer starts when the lock ends; a match that reopens the lock mid-turn leaves the player at least 5s after it.
+- Round result stays 30s, then the next round deals. Everyone pressing "Próxima ronda" deals it early; the host can instead return everyone to the lobby.
+
+### Implementation decisions
+- **Knowledge follows the card.** Whoever knew a card still knows it after a Jack or black King moves it (everyone sees which slots are swapped). A received card is unknown unless the receiver already knew it.
+- **Black King declined:** the user does not keep the viewed card as known.
+- **Calling Gringo on your own turn before drawing** counts as your turn; play passes right. Called at any other moment, the current turn finishes normally.
+- **End checks** (Gringo cycle back to the caller, empty draw pile) happen when the player on turn could next draw: after the draw lock closes and no ability is pending. So the last discard still gets its match window and ability.
+- **Wrong match with an empty pile:** no penalty card; the round then ends at the next draw point.
+- **Matching is blocked while an ability is being resolved**, so the chosen slots cannot change under it.
+- **Match attempts count once per player per discard event**, right or wrong.
+- **Leaving:** any leave while a Gringo game is running pauses it (rounds never end the game by themselves). Bots peek at once, draw, swap into their worst known card if the drawn card is lower, take a low card (≤ 4) into an unknown slot, otherwise discard. Bots never match, use abilities or call Gringo.
 
 ### Knowledge tracking
-Each card carries `knownTo: playerId[]`. Updated on peek, draw, swap, Queen, Jack, black King, wrong match, and every move. The per-player view shows a card face only when the viewer is in `knownTo`.
+Each card carries `knownTo: playerId[]`. Updated on peek, draw, swap, Queen, Jack, black King, wrong match, and every move. It drives bots only.
+
+**Cards are seen once.** Views never show a hand card face during play. A peek, a Queen, a wrong match (everyone) and the card received from a black King swap are sent as a one-time `glimpse` in the state right after that action; the client shows it for 5 seconds, then the card is face down again and the player must remember it. The drawn card stays visible to its holder until it is discarded or swapped in. Everything is revealed at the end of the round.
+
+**Only the last play is visible**, in both games. Gringo sends only the latest log entry; Sueca sends only the last finished round of cards ("Última ronda") plus who played the trump card.
 
 ## 7. UI direction
 
@@ -154,14 +172,14 @@ Each card carries `knownTo: playerId[]`. Updated on peek, draw, swap, Queen, Jac
 
 ## 8. Phase plan
 
-### Phase 1 — Sueca online
+### Phase 1 — Sueca online (done)
 1. Monorepo scaffold, lint, typecheck, Vitest. → verify: `npm test` and `npm run typecheck` green.
 2. Sueca engine + all tests from rules §46, §68, §69. → verify: tests pass.
 3. Server: rooms, invite code, lobby, seats/teams, ready, host start, per-player views, error codes. → verify: room-logic tests in Node plus scripted runs against `wrangler dev` with 4 WebSocket clients; no client ever receives another hand.
 4. Timer + auto-play, reconnection. → verify: tests for timeout and reconnect payload.
 5. Web: landing, create/join, lobby, table, hand/trick/match screens, rules modal. → verify: 4 browser tabs play a full match.
 
-### Phase 2 — Gringo + game choice
+### Phase 2 — Gringo + game choice (done)
 1. Gringo engine + knowledge model + tests from rules §33. → verify: tests pass, including leak tests on per-player views.
 2. Server: discard events, match races, ability window, Gringo call flow. → verify: race and stale-action tests.
 3. Lobby game selector; Gringo table UI. → verify: 3–6 tabs play full rounds.

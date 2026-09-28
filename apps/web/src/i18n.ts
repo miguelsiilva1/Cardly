@@ -1,4 +1,4 @@
-import type { sueca } from "@cardly/engine";
+import type { gringo, sueca } from "@cardly/engine";
 import type { ErrorCode } from "@cardly/protocol";
 
 export const ERROR_TEXT: Record<ErrorCode, string> = {
@@ -21,6 +21,22 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
   STALE_ACTION: "O jogo mudou entretanto. Tenta outra vez.",
   GAME_PAUSED: "O jogo está em pausa até o anfitrião decidir.",
   NO_VACANCY: "Já não há lugares vazios na mesa.",
+  TOO_MANY_PLAYERS: "Há jogadores a mais para a Sueca. Só dá para quatro.",
+  NOT_ENOUGH_PLAYERS: "O Gringo precisa de pelo menos 3 jogadores.",
+  ROUND_NOT_ACTIVE: "A ronda já terminou.",
+  INVALID_PEEK: "Escolhe exatamente 2 cartas.",
+  ALREADY_PEEKED: "Já viste as tuas 2 cartas.",
+  ALREADY_DREW: "Já tiraste uma carta.",
+  MUST_DRAW_FIRST: "Tira uma carta primeiro.",
+  DRAW_LOCKED: "Espera um instante: ainda se pode usar a habilidade.",
+  ABILITY_IN_PROGRESS: "Espera: alguém está a usar uma habilidade.",
+  NOT_YOUR_CARD: "Essa carta não é tua.",
+  INVALID_TARGET: "Escolhe uma carta tua e uma de outro jogador.",
+  NOTHING_TO_MATCH: "Ainda não há carta no monte.",
+  MATCH_TOO_LATE: "Outro jogador foi mais rápido.",
+  ALREADY_TRIED: "Já tentaste igualar esta carta.",
+  NO_ABILITY: "Já não podes usar essa habilidade.",
+  GRINGO_ALREADY_CALLED: "Já alguém chamou Gringo nesta ronda.",
 };
 
 export const SUIT_NAME: Record<sueca.Suit, string> = {
@@ -38,20 +54,33 @@ export const SUIT_SYMBOL: Record<sueca.Suit, string> = {
   spades: "♠︎",
 };
 
-export const RANK_NAME: Record<sueca.Rank, string> = {
+export const RANK_NAME: Record<gringo.Rank, string> = {
   A: "Ás",
+  "2": "Dois",
+  "3": "Três",
+  "4": "Quatro",
+  "5": "Cinco",
+  "6": "Seis",
   "7": "Sete",
-  K: "Rei",
+  "8": "Oito",
+  "9": "Nove",
+  "10": "Dez",
   J: "Valete",
   Q: "Dama",
-  "6": "Seis",
-  "5": "Cinco",
-  "4": "Quatro",
-  "3": "Três",
-  "2": "Dois",
+  K: "Rei",
+  JOKER: "Joker",
 };
 
-export const cardLabel = (c: sueca.Card) => `${RANK_NAME[c.rank]} de ${SUIT_NAME[c.suit]}`;
+/** Works for both decks: Sueca ids are a subset of the Gringo deck. */
+export const cardLabel = (c: gringo.Card) => (c.suit ? `${RANK_NAME[c.rank]} de ${SUIT_NAME[c.suit]}` : RANK_NAME[c.rank]);
+
+export const ABILITY_NAME: Record<gringo.Ability, string> = {
+  QUEEN: "Dama",
+  JACK: "Valete",
+  BLACK_KING: "Rei preto",
+};
+
+export const GAME_NAME = { sueca: "Sueca", gringo: "Gringo" } as const;
 
 export const TIE_RULE_TEXT: Record<sueca.SuecaRules["tieAt60Rule"], string> = {
   EACH_TEAM_GETS_ONE: "Cada equipa ganha 1 risco",

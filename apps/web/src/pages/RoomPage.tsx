@@ -4,6 +4,7 @@ import { navigate } from "../App";
 import { ERROR_TEXT } from "../i18n";
 import { storage } from "../net/api";
 import { useRoom, type RoomClient } from "../net/useRoom";
+import { GringoTable } from "./GringoTable";
 import { Lobby } from "./Lobby";
 import { Table } from "./Table";
 
@@ -44,6 +45,8 @@ export function RoomPage({ code }: { code: string }) {
     body = <JoinForm client={client} code={code} />;
   } else if (room.status === "LOBBY") {
     body = <Lobby client={client} />;
+  } else if (room.game === "gringo") {
+    body = <GringoTable client={client} />;
   } else {
     body = <Table client={client} />;
   }

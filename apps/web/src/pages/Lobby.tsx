@@ -1,13 +1,17 @@
 import { useState } from "react";
-import { sueca } from "@cardly/engine";
-import type { PublicPlayer } from "@cardly/protocol";
+import { gringo, sueca } from "@cardly/engine";
+import { SEATS, type GameKind, type PublicPlayer } from "@cardly/protocol";
 import { navigate } from "../App";
-import { CAPOTE_RULE_TEXT, riscos, TIE_RULE_TEXT } from "../i18n";
+import { CAPOTE_RULE_TEXT, GAME_NAME, riscos, TIE_RULE_TEXT } from "../i18n";
 import type { RoomClient } from "../net/useRoom";
 import { RulesButton } from "../ui/RulesDialog";
 
-/** Seat positions around the lobby table. Play goes 0 → 1 → 2 → 3, to the right. */
-const SEAT_POS = ["bottom", "right", "top", "left"] as const;
+/** Seat positions around the lobby table. Play goes 0 → 1 → 2 …, to the right. */
+const SEAT_POS = {
+  sueca: ["bottom", "right", "top", "left"],
+  gringo: ["bottom", "bottom-right", "top-right", "top", "top-left", "bottom-left"],
+} as const;
+type SeatPos = (typeof SEAT_POS)[GameKind][number];
 const TIMER_OPTIONS = [0, 15, 30, 60] as const;
 
 export function Lobby({ client }: { client: RoomClient }) {
@@ -15,26 +19,30 @@ export function Lobby({ client }: { client: RoomClient }) {
   const me = room.players.find((p) => p.id === client.playerId)!;
   const isHost = room.hostId === me.id;
   const seated = room.players.filter((p) => p.seat !== null);
-  const missing = 4 - seated.length;
+  const isGringo = room.game === "gringo";
+  const missing = (isGringo ? gringo.MIN_PLAYERS : 4) - seated.length;
   const notReady = seated.filter((p) => !p.ready).length;
-  const canStart = missing === 0 && notReady === 0;
+  const canStart = missing <= 0 && notReady === 0;
 
   const bySeat = (s: number) => room.players.find((p) => p.seat === s);
 
   return (
     <main className="lobby felt">
       <header className="lobby__head">
-        <InviteCode code={room.code} />
-        <RulesButton />
+        <InviteCode code={room.code} game={room.game} />
+        <RulesButton game={room.game} />
       </header>
 
-      <section className="lobby-table" aria-label="Lugares à mesa">
+      <GamePicker client={client} isHost={isHost} />
+
+      <section className={`lobby-table lobby-table--${room.game}`} aria-label="Lugares à mesa">
         <div className="lobby-table__top" aria-hidden="true" />
-        {SEAT_POS.map((pos, seat) => (
+        {SEAT_POS[room.game].slice(0, SEATS[room.game]).map((pos, seat) => (
           <Seat
             key={seat}
             seat={seat}
             pos={pos}
+            teams={!isGringo}
             player={bySeat(seat)}
             isMe={bySeat(seat)?.id === me.id}
             hostId={room.hostId}
@@ -46,13 +54,17 @@ export function Lobby({ client }: { client: RoomClient }) {
       </section>
 
       <section className="lobby__panel paper">
-        <Settings client={client} isHost={isHost} />
+        {isGringo ? <GringoSettings client={client} isHost={isHost} /> : <Settings client={client} isHost={isHost} />}
 
         <div className="lobby__status" role="status">
           {missing > 0
             ? missing === 1
-              ? "À espera de mais 1 jogador."
-              : `À espera de mais ${missing} jogadores.`
+              ? isGringo
+                ? "Falta 1 jogador (mínimo 3)."
+                : "À espera de mais 1 jogador."
+              : isGringo
+                ? `Faltam ${missing} jogadores (mínimo 3).`
+                : `À espera de mais ${missing} jogadores.`
             : notReady > 0
               ? notReady === 1
                 ? "Falta 1 jogador ficar pronto."
@@ -99,13 +111,44 @@ export function Lobby({ client }: { client: RoomClient }) {
   );
 }
 
-function InviteCode({ code }: { code: string }) {
+function GamePicker({ client, isHost }: { client: RoomClient; isHost: boolean }) {
+  const room = client.room!;
+  if (!isHost) {
+    return (
+      <p className="game-pick game-pick--read">
+        Jogo: <strong>{GAME_NAME[room.game]}</strong>
+      </p>
+    );
+  }
+  const tooMany = room.players.length > SEATS.sueca;
+  return (
+    <fieldset className="game-pick">
+      <legend className="sr-only">Jogo</legend>
+      {(["sueca", "gringo"] as const).map((g) => (
+        <label key={g} className={`game-pick__option ${room.game === g ? "is-on" : ""}`}>
+          <input
+            type="radio"
+            name="game"
+            value={g}
+            checked={room.game === g}
+            disabled={g === "sueca" && tooMany}
+            onChange={() => client.send({ type: "SET_GAME", game: g })}
+          />
+          <span className="game-pick__name">{GAME_NAME[g]}</span>
+          <span className="game-pick__meta">{g === "sueca" ? "4 jogadores, em equipas" : "3 a 6 jogadores"}</span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+function InviteCode({ code, game }: { code: string; game: GameKind }) {
   const [copied, setCopied] = useState(false);
   const link = `${window.location.origin}/sala/${code}`;
 
   async function share() {
     try {
-      if (navigator.share) await navigator.share({ title: "Sueca no Cardly", url: link });
+      if (navigator.share) await navigator.share({ title: `${GAME_NAME[game]} no Cardly`, url: link });
       else {
         await navigator.clipboard.writeText(link);
         setCopied(true);
@@ -129,7 +172,8 @@ function InviteCode({ code }: { code: string }) {
 
 interface SeatProps {
   seat: number;
-  pos: (typeof SEAT_POS)[number];
+  pos: SeatPos;
+  teams: boolean;
   player: PublicPlayer | undefined;
   isMe: boolean;
   hostId: string;
@@ -138,13 +182,13 @@ interface SeatProps {
   onKick: () => void;
 }
 
-function Seat({ seat, pos, player, isMe, hostId, canKick, onSit, onKick }: SeatProps) {
+function Seat({ seat, pos, teams, player, isMe, hostId, canKick, onSit, onKick }: SeatProps) {
   const team = sueca.teamOf(seat);
   // Two steps so a mis-tap on a phone does not remove a friend.
   const [confirming, setConfirming] = useState(false);
   return (
-    <div className={`seat seat--${pos} team-${team}`}>
-      <span className="seat__team">Equipa {team}</span>
+    <div className={`seat seat--${pos} ${teams ? `team-${team}` : "no-team"}`}>
+      {teams && <span className="seat__team">Equipa {team}</span>}
       {player ? (
         <div className={`seat__plate ${isMe ? "seat__plate--me" : ""}`}>
           <span className="seat__name">
@@ -273,6 +317,59 @@ function Settings({ client, isHost }: { client: RoomClient; isHost: boolean }) {
           {TIMER_OPTIONS.map((n) => (
             <option key={n} value={n}>
               {n ? `${n} segundos` : "Sem limite"}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+}
+
+function GringoSettings({ client, isHost }: { client: RoomClient; isHost: boolean }) {
+  const s = client.room!.gringoSettings;
+  const update = (settings: Partial<gringo.GringoRules>) => client.send({ type: "UPDATE_GRINGO_SETTINGS", settings });
+
+  if (!isHost) {
+    return (
+      <dl className="settings settings--read">
+        <div>
+          <dt>Tempo por jogada</dt>
+          <dd>{s.turnTimerSeconds ? `${s.turnTimerSeconds} segundos` : "Sem limite"}</dd>
+        </div>
+        <div>
+          <dt>Tempo para usar habilidade</dt>
+          <dd>{s.abilityWindowSeconds} segundos</dd>
+        </div>
+      </dl>
+    );
+  }
+
+  return (
+    <div className="settings">
+      <label>
+        Tempo por jogada
+        <select
+          className="input"
+          value={s.turnTimerSeconds}
+          onChange={(e) => update({ turnTimerSeconds: Number(e.target.value) })}
+        >
+          {gringo.TURN_TIMER_OPTIONS.map((n) => (
+            <option key={n} value={n}>
+              {n ? `${n} segundos` : "Sem limite"}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Tempo para usar habilidade
+        <select
+          className="input"
+          value={s.abilityWindowSeconds}
+          onChange={(e) => update({ abilityWindowSeconds: Number(e.target.value) })}
+        >
+          {gringo.ABILITY_WINDOW_OPTIONS.map((n) => (
+            <option key={n} value={n}>
+              {n} segundos
             </option>
           ))}
         </select>

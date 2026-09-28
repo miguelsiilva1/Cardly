@@ -53,6 +53,38 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return str(m.cardId, 8) && int(m.version) ? { type: "PLAY_CARD", cardId: m.cardId, version: m.version } : null;
     case "KICK":
       return str(m.playerId, 64) ? { type: "KICK", playerId: m.playerId } : null;
+    case "SET_GAME":
+      return m.game === "sueca" || m.game === "gringo" ? { type: "SET_GAME", game: m.game } : null;
+    case "UPDATE_GRINGO_SETTINGS": {
+      const s = m.settings;
+      if (!isObj(s)) return null;
+      const settings: Obj = {};
+      for (const key of ["turnTimerSeconds", "abilityWindowSeconds"]) {
+        if (s[key] === undefined) continue;
+        if (!int(s[key])) return null;
+        settings[key] = s[key];
+      }
+      return { type: "UPDATE_GRINGO_SETTINGS", settings } as ClientMessage;
+    }
+    case "G_PEEK":
+      return Array.isArray(m.slotIds) && m.slotIds.length <= 4 && m.slotIds.every((id) => str(id, 16))
+        ? { type: "G_PEEK", slotIds: m.slotIds as string[] }
+        : null;
+    case "G_SWAP":
+      return str(m.slotId, 16) ? { type: "G_SWAP", slotId: m.slotId } : null;
+    case "G_MATCH":
+      return str(m.slotId, 16) && int(m.eventId) ? { type: "G_MATCH", slotId: m.slotId, eventId: m.eventId } : null;
+    case "G_USE_ABILITY":
+      return int(m.eventId) ? { type: "G_USE_ABILITY", eventId: m.eventId } : null;
+    case "G_TARGET":
+      if (!str(m.mySlotId, 16)) return null;
+      if (m.targetSlotId !== null && !str(m.targetSlotId, 16)) return null;
+      return { type: "G_TARGET", mySlotId: m.mySlotId, targetSlotId: m.targetSlotId };
+    case "G_KING_DECIDE":
+      return typeof m.swap === "boolean" ? { type: "G_KING_DECIDE", swap: m.swap } : null;
+    case "G_DRAW":
+    case "G_DISCARD":
+    case "G_CALL_GRINGO":
     case "START":
     case "CONTINUE":
     case "PLAY_AGAIN":

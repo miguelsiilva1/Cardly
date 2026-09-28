@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import PartySocket from "partysocket";
-import type { sueca } from "@cardly/engine";
+import type { gringo, sueca } from "@cardly/engine";
 import { CLOSE_KICKED, PARTY_NAME, type ClientMessage, type ErrorCode, type RoomSnapshot, type ServerMessage } from "@cardly/protocol";
 import { SERVER_HOST, storage } from "./api";
 
@@ -12,6 +12,12 @@ export interface RoomClient {
   playerId: string | null;
   room: RoomSnapshot | null;
   sueca: sueca.SuecaView | null;
+  gringo: gringo.GringoView | null;
+  /**
+   * Gringo cards shown to me once. Kept apart from `gringo` because the next
+   * STATE drops them, possibly before React renders the one that had them.
+   */
+  glimpse: NonNullable<gringo.GringoView["glimpse"]> | null;
   /** Events from the latest STATE, for animation only. `seq` changes on every STATE. */
   events: { seq: number; list: sueca.SuecaEvent[] };
   error: { code: ErrorCode; at: number } | null;
@@ -40,6 +46,8 @@ export function useRoom(code: string): RoomClient {
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [room, setRoom] = useState<RoomSnapshot | null>(null);
   const [view, setView] = useState<sueca.SuecaView | null>(null);
+  const [gringoView, setGringoView] = useState<gringo.GringoView | null>(null);
+  const [glimpse, setGlimpse] = useState<RoomClient["glimpse"]>(null);
   const [events, setEvents] = useState<RoomClient["events"]>({ seq: 0, list: [] });
   const [error, setError] = useState<RoomClient["error"]>(null);
   const [clockOffset, setClockOffset] = useState(0);
@@ -85,6 +93,8 @@ export function useRoom(code: string): RoomClient {
         case "STATE":
           setRoom(msg.room);
           setView(msg.sueca);
+          setGringoView(msg.gringo);
+          if (msg.gringo?.glimpse) setGlimpse(msg.gringo.glimpse);
           setEvents((prev) => ({ seq: prev.seq + 1, list: msg.events }));
           setClockOffset(msg.serverNow - Date.now());
           setPending(false);
@@ -110,7 +120,7 @@ export function useRoom(code: string): RoomClient {
   const send = useCallback((msg: ClientMessage) => {
     const socket = socketRef.current;
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
-    if (msg.type === "PLAY_CARD") setPending(true);
+    if (msg.type === "PLAY_CARD" || msg.type.startsWith("G_")) setPending(true);
     socket.send(JSON.stringify(msg));
   }, []);
 
@@ -132,5 +142,20 @@ export function useRoom(code: string): RoomClient {
     storage.setToken(code, null);
   }, [send, code]);
 
-  return { connection, playerId, room, sueca: view, events, error, clockOffset, pending, join, send, resume, leave };
+  return {
+    connection,
+    playerId,
+    room,
+    sueca: view,
+    gringo: gringoView,
+    glimpse,
+    events,
+    error,
+    clockOffset,
+    pending,
+    join,
+    send,
+    resume,
+    leave,
+  };
 }

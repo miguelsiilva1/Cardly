@@ -1,10 +1,13 @@
-import { sueca, type Rng } from "@cardly/engine";
+import { gringo, sueca, type Rng } from "@cardly/engine";
 import {
+  GRINGO_RESULT_SECONDS,
   HAND_RESULT_SECONDS,
   NAME_MAX_LENGTH,
+  SEATS,
   TRICK_PAUSE_MS,
   type ClientMessage,
   type ErrorCode,
+  type GameKind,
   type RoomSnapshot,
   type ServerMessage,
   type Vacancy,
@@ -18,7 +21,6 @@ export const ROOM_TTL_MS = 24 * 60 * 60 * 1000;
  */
 export const IDLE_CLOSE_MS = 20 * 60 * 1000;
 
-const SEATS = 4;
 /** A bot "thinks" this long so humans can follow its plays. */
 export const BOT_DELAY_MS = 1200;
 
@@ -35,15 +37,19 @@ export interface Player {
 
 export interface RoomState {
   code: string;
-  game: "sueca";
+  game: GameKind;
   createdAt: number;
   lastActivity: number;
   hostId: string | null;
   status: "LOBBY" | "PLAYING";
   settings: sueca.SuecaRules;
+  gringoSettings?: gringo.GringoRules;
   players: Player[];
   sueca: sueca.SuecaState | null;
+  gringo?: gringo.GringoState | null;
   turnDeadline: number | null;
+  /** Gringo: end of the draw lock after a discard. */
+  windowDeadline?: number | null;
   continueDeadline: number | null;
   /** Seats emptied mid-match; while non-empty, all timers stop until the host decides. */
   vacancies?: Vacancy[];
@@ -79,9 +85,12 @@ export function createRoom(code: string, now: number): RoomState {
     hostId: null,
     status: "LOBBY",
     settings: { ...sueca.DEFAULT_SUECA_RULES },
+    gringoSettings: { ...gringo.DEFAULT_GRINGO_RULES },
     players: [],
     sueca: null,
+    gringo: null,
     turnDeadline: null,
+    windowDeadline: null,
     continueDeadline: null,
   };
 }
@@ -102,8 +111,10 @@ const changed = (room: RoomState, events: sueca.SuecaEvent[] = []): Outcome => (
   events,
 });
 
+const seatCount = (room: RoomState) => SEATS[room.game];
+
 function freeSeat(room: RoomState): number | null {
-  for (let s = 0; s < SEATS; s++) {
+  for (let s = 0; s < seatCount(room); s++) {
     if (!room.players.some((p) => p.seat === s)) return s;
   }
   return null;
@@ -115,6 +126,7 @@ const isBotSeat = (room: RoomState, seat: number) => room.players.some((p) => p.
 
 /** Sets deadlines after any game change. */
 function schedule(room: RoomState, now: number, trickCompleted: boolean): void {
+  if (room.game === "gringo") return scheduleGringo(room, now, null);
   const s = room.sueca;
   room.turnDeadline = null;
   room.continueDeadline = null;
@@ -141,7 +153,96 @@ function applyGame(room: RoomState, t: sueca.Transition, now: number): Outcome {
   return changed(room, t.events);
 }
 
+/** Extra time a player keeps on their turn when a match reopens the draw lock. */
+const MATCH_GRACE_MS = 5000;
+
+/**
+ * Gringo deadlines. `prev` is the game before this change: an unchanged turn,
+ * window or ability keeps its deadline; a new one gets a fresh one.
+ */
+function scheduleGringo(room: RoomState, now: number, prev: gringo.GringoState | null): void {
+  const g = room.gringo;
+  const old = { turn: room.turnDeadline, window: room.windowDeadline ?? null, cont: room.continueDeadline };
+  room.turnDeadline = null;
+  room.windowDeadline = null;
+  room.continueDeadline = null;
+  if (!g || paused(room)) return;
+  const timer = g.rules.turnTimerSeconds * 1000;
+
+  if (g.phase === "PEEK") {
+    if (timer > 0) room.turnDeadline = prev?.phase === "PEEK" && old.turn !== null ? old.turn : now + timer;
+    return;
+  }
+
+  if (g.phase === "ROUND_RESULT") {
+    const entering = prev?.phase !== "ROUND_RESULT" || old.cont === null;
+    room.continueDeadline = entering ? now + GRINGO_RESULT_SECONDS * 1000 : old.cont;
+    if (entering) for (const p of room.players) p.continued = !!p.bot;
+    return;
+  }
+
+  if (g.window) {
+    const same = prev?.window?.eventId === g.window.eventId && old.window !== null;
+    room.windowDeadline = same ? old.window : now + g.rules.abilityWindowSeconds * 1000;
+  }
+  const start = room.windowDeadline ?? now;
+
+  if (g.ability) {
+    const same = prev?.ability?.seat === g.ability.seat && prev.ability.cardId === g.ability.cardId && old.turn !== null;
+    if (isBotSeat(room, g.ability.seat)) room.turnDeadline = now + BOT_DELAY_MS;
+    else if (timer > 0) room.turnDeadline = same ? old.turn : now + timer;
+    return;
+  }
+
+  if (isBotSeat(room, g.turnSeat)) {
+    room.turnDeadline = start + BOT_DELAY_MS;
+  } else if (timer > 0) {
+    const sameTurn = prev?.phase === "PLAYING" && prev.turnNumber === g.turnNumber && !prev.ability && old.turn !== null;
+    room.turnDeadline = sameTurn ? Math.max(old.turn!, start + MATCH_GRACE_MS) : start + timer;
+  }
+}
+
+/** Bots pick their two cards as soon as a round is dealt. */
+function botsPeek(room: RoomState, rng: Rng): void {
+  let g = room.gringo;
+  if (g?.phase !== "PEEK") return;
+  for (const p of room.players) {
+    if (p.bot && p.seat !== null && !g.peeked[p.seat]) {
+      const r = gringo.peek(g, p.seat, gringo.randomPeekSlots(g, p.seat, rng));
+      if (r.ok) g = r.value;
+    }
+  }
+  room.gringo = g;
+}
+
+function applyGringo(room: RoomState, next: gringo.GringoState, deps: Deps): Outcome {
+  const prev = room.gringo ?? null;
+  room.gringo = next;
+  botsPeek(room, deps.rng);
+  scheduleGringo(room, deps.now, prev);
+  return changed(room);
+}
+
+function gringoAction(
+  room: RoomState,
+  me: Player,
+  deps: Deps,
+  act: (g: gringo.GringoState, seat: number) => ReturnType<typeof gringo.draw>,
+): Outcome {
+  if (room.status !== "PLAYING" || !room.gringo) return fail(room, "GAME_NOT_ACTIVE");
+  if (paused(room)) return fail(room, "GAME_PAUSED");
+  if (me.seat === null) return fail(room, "NOT_SEATED");
+  const r = act(room.gringo, me.seat);
+  if (!r.ok) return fail(room, r.error);
+  return applyGringo(room, r.value, deps);
+}
+
 function nextHand(room: RoomState, deps: Deps): Outcome {
+  if (room.game === "gringo") {
+    const r = gringo.nextRound(room.gringo!, deps.rng);
+    if (!r.ok) return fail(room, r.error);
+    return applyGringo(room, r.value, deps);
+  }
   const r = sueca.startNextHand(room.sueca!, deps.rng);
   if (!r.ok) return fail(room, r.error);
   return applyGame(room, r.value, deps.now);
@@ -151,6 +252,8 @@ const TARGETS: readonly number[] = sueca.TARGET_RISK_OPTIONS;
 const TIE_RULES: readonly string[] = ["EACH_TEAM_GETS_ONE", "NO_POINTS", "CARRY_TO_NEXT_HAND"];
 const CAPOTE_RULES: readonly string[] = ["120_POINTS", "ALL_TEN_TRICKS"];
 export const TIMER_OPTIONS: readonly number[] = [0, 15, 30, 60];
+const WINDOW_OPTIONS: readonly number[] = gringo.ABILITY_WINDOW_OPTIONS;
+const GRINGO_TIMER_OPTIONS: readonly number[] = gringo.TURN_TIMER_OPTIONS;
 
 export function handleMessage(
   input: RoomState,
@@ -181,7 +284,7 @@ function apply(input: RoomState, playerId: string | null, msg: ClientMessage, de
       };
     }
     if (room.status !== "LOBBY") return fail(room, "MATCH_ALREADY_STARTED");
-    if (room.players.length >= SEATS) return fail(room, "ROOM_FULL");
+    if (room.players.length >= seatCount(room)) return fail(room, "ROOM_FULL");
     const name = msg.name.trim();
     if (name.length === 0 || name.length > NAME_MAX_LENGTH) return fail(room, "INVALID_NAME");
     const player: Player = {
@@ -210,7 +313,7 @@ function apply(input: RoomState, playerId: string | null, msg: ClientMessage, de
   switch (msg.type) {
     case "TAKE_SEAT": {
       if (room.status !== "LOBBY") return fail(room, "MATCH_ALREADY_STARTED");
-      if (!Number.isInteger(msg.seat) || msg.seat < 0 || msg.seat >= SEATS) return fail(room, "INVALID_MESSAGE");
+      if (!Number.isInteger(msg.seat) || msg.seat < 0 || msg.seat >= seatCount(room)) return fail(room, "INVALID_MESSAGE");
       if (room.players.some((p) => p.seat === msg.seat && p.id !== me.id)) return fail(room, "SEAT_TAKEN");
       me.seat = msg.seat;
       me.ready = false;
@@ -239,14 +342,71 @@ function apply(input: RoomState, playerId: string | null, msg: ClientMessage, de
       return changed(room);
     }
 
+    case "SET_GAME": {
+      if (!isHost) return fail(room, "NOT_HOST");
+      if (room.status !== "LOBBY") return fail(room, "MATCH_ALREADY_STARTED");
+      if (msg.game === room.game) return unchanged(room);
+      if (room.players.length > SEATS[msg.game]) return fail(room, "TOO_MANY_PLAYERS");
+      room.game = msg.game;
+      // Players on seats the new table does not have move to free ones.
+      for (const p of room.players) {
+        if (p.seat !== null && p.seat >= seatCount(room)) {
+          p.seat = null;
+          p.seat = freeSeat(room);
+        }
+      }
+      for (const p of room.players) p.ready = !!p.bot;
+      return changed(room);
+    }
+
+    case "UPDATE_GRINGO_SETTINGS": {
+      if (!isHost) return fail(room, "NOT_HOST");
+      if (room.status !== "LOBBY") return fail(room, "MATCH_ALREADY_STARTED");
+      const s = msg.settings;
+      if (s.turnTimerSeconds !== undefined && !GRINGO_TIMER_OPTIONS.includes(s.turnTimerSeconds))
+        return fail(room, "INVALID_MESSAGE");
+      if (s.abilityWindowSeconds !== undefined && !WINDOW_OPTIONS.includes(s.abilityWindowSeconds))
+        return fail(room, "INVALID_MESSAGE");
+      room.gringoSettings = { ...gringoRules(room), ...s };
+      for (const p of room.players) p.ready = !!p.bot;
+      return changed(room);
+    }
+
     case "START": {
       if (!isHost) return fail(room, "NOT_HOST");
       if (room.status !== "LOBBY") return fail(room, "MATCH_ALREADY_STARTED");
       const seated = room.players.filter((p) => p.seat !== null);
-      if (seated.length < SEATS || !seated.every((p) => p.ready)) return fail(room, "NOT_ALL_READY");
+      if (room.game === "gringo") {
+        if (seated.length < gringo.MIN_PLAYERS) return fail(room, "NOT_ENOUGH_PLAYERS");
+        if (!seated.every((p) => p.ready)) return fail(room, "NOT_ALL_READY");
+        // The engine numbers seats 0..n-1 in play order; close the gaps.
+        seated.sort((a, b) => a.seat! - b.seat!).forEach((p, i) => (p.seat = i));
+        room.status = "PLAYING";
+        return applyGringo(room, gringo.createGame(gringoRules(room), seated.length, deps.rng), deps);
+      }
+      if (seated.length < SEATS.sueca || !seated.every((p) => p.ready)) return fail(room, "NOT_ALL_READY");
       room.status = "PLAYING";
       return applyGame(room, sueca.createMatch(room.settings, deps.rng), deps.now);
     }
+
+    case "G_PEEK":
+      return gringoAction(room, me, deps, (g, seat) => gringo.peek(g, seat, msg.slotIds));
+    case "G_DRAW":
+      return gringoAction(room, me, deps, (g, seat) => gringo.draw(g, seat));
+    case "G_DISCARD":
+      return gringoAction(room, me, deps, (g, seat) => gringo.discardDrawn(g, seat));
+    case "G_SWAP":
+      return gringoAction(room, me, deps, (g, seat) => gringo.swapDrawn(g, seat, msg.slotId));
+    case "G_MATCH":
+      return gringoAction(room, me, deps, (g, seat) => gringo.matchDiscard(g, seat, msg.slotId, msg.eventId));
+    case "G_USE_ABILITY":
+      return gringoAction(room, me, deps, (g, seat) => gringo.useAbility(g, seat, msg.eventId));
+    case "G_TARGET":
+      return gringoAction(room, me, deps, (g, seat) => gringo.chooseAbilityTarget(g, seat, msg.mySlotId, msg.targetSlotId));
+    case "G_KING_DECIDE":
+      return gringoAction(room, me, deps, (g, seat) => gringo.decideBlackKing(g, seat, msg.swap));
+    case "G_CALL_GRINGO":
+      return gringoAction(room, me, deps, (g, seat) => gringo.callGringo(g, seat));
 
     case "PLAY_CARD": {
       if (room.status !== "PLAYING" || !room.sueca) return fail(room, "GAME_NOT_ACTIVE");
@@ -259,7 +419,8 @@ function apply(input: RoomState, playerId: string | null, msg: ClientMessage, de
     }
 
     case "CONTINUE": {
-      if (room.sueca?.phase !== "HAND_RESULT") return fail(room, "GAME_NOT_ACTIVE");
+      const between = room.game === "gringo" ? room.gringo?.phase === "ROUND_RESULT" : room.sueca?.phase === "HAND_RESULT";
+      if (!between) return fail(room, "GAME_NOT_ACTIVE");
       if (paused(room)) return fail(room, "GAME_PAUSED");
       if (me.continued) return unchanged(room);
       me.continued = true;
@@ -289,13 +450,15 @@ function apply(input: RoomState, playerId: string | null, msg: ClientMessage, de
         });
       }
       room.vacancies = [];
+      botsPeek(room, deps.rng);
       schedule(room, deps.now, false);
       return changed(room);
     }
 
     case "END_MATCH": {
       if (!isHost) return fail(room, "NOT_HOST");
-      if (!paused(room)) return fail(room, "NO_VACANCY");
+      const betweenRounds = room.game === "gringo" && room.gringo?.phase === "ROUND_RESULT";
+      if (!paused(room) && !betweenRounds) return fail(room, "NO_VACANCY");
       backToLobby(room);
       return changed(room);
     }
@@ -312,7 +475,8 @@ function apply(input: RoomState, playerId: string | null, msg: ClientMessage, de
     case "LEAVE": {
       room.players = room.players.filter((p) => p.id !== me.id);
       if (isHost) room.hostId = room.players.find((p) => !p.bot)?.id ?? null;
-      const midMatch = room.status === "PLAYING" && room.sueca?.phase !== "MATCH_RESULT";
+      // Gringo rounds never end the match on their own, so any leave while playing pauses.
+      const midMatch = room.status === "PLAYING" && (room.game === "gringo" || room.sueca?.phase !== "MATCH_RESULT");
       if (midMatch && me.seat !== null) {
         room.vacancies = [...(room.vacancies ?? []), { seat: me.seat, name: me.name }];
         schedule(room, deps.now, false);
@@ -326,8 +490,10 @@ function apply(input: RoomState, playerId: string | null, msg: ClientMessage, de
 function backToLobby(room: RoomState): void {
   room.status = "LOBBY";
   room.sueca = null;
+  room.gringo = null;
   room.vacancies = [];
   room.turnDeadline = null;
+  room.windowDeadline = null;
   room.continueDeadline = null;
   for (const p of room.players) {
     p.ready = !!p.bot;
@@ -338,8 +504,9 @@ function backToLobby(room: RoomState): void {
 /** Server timers: bot moves, auto-play on turn timeout, next hand after the result screen. */
 export function handleAlarm(input: RoomState, deps: Deps): Outcome | null {
   const room: RoomState = structuredClone(input);
-  const s = room.sueca;
   if (paused(room)) return null;
+  if (room.game === "gringo") return gringoAlarm(room, deps);
+  const s = room.sueca;
   if (s?.phase === "PLAYING" && room.turnDeadline !== null && deps.now >= room.turnDeadline) {
     const cardId = isBotSeat(room, s.turnSeat) ? sueca.botCardId(s) : sueca.autoPlayCardId(s);
     const r = sueca.playCard(s, s.turnSeat, cardId);
@@ -352,19 +519,37 @@ export function handleAlarm(input: RoomState, deps: Deps): Outcome | null {
   return null;
 }
 
+function gringoAlarm(room: RoomState, deps: Deps): Outcome | null {
+  const g = room.gringo;
+  if (!g) return null;
+  const due = (t: number | null | undefined) => t != null && deps.now >= t;
+  if (g.phase === "PLAYING" && g.window && due(room.windowDeadline)) {
+    return applyGringo(room, gringo.closeWindow(g, g.window.eventId), deps);
+  }
+  if ((g.phase === "PEEK" || g.phase === "PLAYING") && due(room.turnDeadline)) {
+    const botTurn = g.phase === "PLAYING" && !g.ability && !g.window && isBotSeat(room, g.turnSeat);
+    return applyGringo(room, botTurn ? gringo.botTurn(g) : gringo.timeout(g, deps.rng), deps);
+  }
+  if (g.phase === "ROUND_RESULT" && due(room.continueDeadline)) return nextHand(room, deps);
+  return null;
+}
+
+const deadlines = (room: RoomState) =>
+  [room.turnDeadline, room.windowDeadline ?? null, room.continueDeadline].filter((t): t is number => t !== null);
+
 export function nextAlarmAt(room: RoomState, now: number): number {
-  const deadline = room.turnDeadline ?? room.continueDeadline;
-  if (deadline !== null) return deadline;
+  const pending = deadlines(room);
+  if (pending.length > 0) return Math.min(...pending);
   const idleAt = room.lastActivity + IDLE_CLOSE_MS;
   return now < idleAt ? idleAt : room.lastActivity + ROOM_TTL_MS;
 }
 
 export function isIdle(room: RoomState, now: number): boolean {
-  return room.turnDeadline === null && room.continueDeadline === null && now >= room.lastActivity + IDLE_CLOSE_MS;
+  return deadlines(room).length === 0 && now >= room.lastActivity + IDLE_CLOSE_MS;
 }
 
 export function isExpired(room: RoomState, now: number): boolean {
-  return room.turnDeadline === null && room.continueDeadline === null && now >= room.lastActivity + ROOM_TTL_MS;
+  return deadlines(room).length === 0 && now >= room.lastActivity + ROOM_TTL_MS;
 }
 
 export function snapshot(room: RoomState, connectedIds: ReadonlySet<string>): RoomSnapshot {
@@ -374,6 +559,7 @@ export function snapshot(room: RoomState, connectedIds: ReadonlySet<string>): Ro
     hostId: room.hostId ?? "",
     status: room.status,
     settings: room.settings,
+    gringoSettings: gringoRules(room),
     players: room.players.map((p) => ({
       id: p.id,
       name: p.name,
@@ -384,6 +570,7 @@ export function snapshot(room: RoomState, connectedIds: ReadonlySet<string>): Ro
       bot: !!p.bot,
     })),
     turnDeadline: room.turnDeadline,
+    windowDeadline: room.windowDeadline ?? null,
     continueDeadline: room.continueDeadline,
     vacancies: room.vacancies ?? [],
   };
@@ -402,7 +589,13 @@ export function stateFor(
     type: "STATE",
     room: snapshot(room, connectedIds),
     sueca: room.sueca && seat !== null ? sueca.viewFor(room.sueca, seat) : null,
+    gringo: room.gringo && seat !== null ? gringo.viewFor(room.gringo, seat) : null,
     events,
     serverNow: now,
   };
+}
+
+/** Rooms saved before Gringo existed have no Gringo settings. */
+function gringoRules(room: RoomState): gringo.GringoRules {
+  return room.gringoSettings ?? { ...gringo.DEFAULT_GRINGO_RULES };
 }

@@ -270,6 +270,10 @@ select {
   filter: grayscale(0.7) brightness(0.8);
 }
 
+.card--slot {
+  --w: clamp(28px, 7.4vw, 50px);
+}
+
 .card--mini {
   --w: 28px;
   border-radius: 4px;
@@ -317,6 +321,27 @@ select {
   top: 8%;
   left: 0;
   right: 0;
+}
+
+.card--joker {
+  color: var(--team-a);
+}
+
+.card__center--word {
+  font-size: 0.75em;
+  font-style: italic;
+  letter-spacing: 0.02em;
+}
+
+/* An empty pile: just the outline where a card would be. */
+.card--empty {
+  background: transparent;
+  border: 2px dashed rgb(255 255 255 / 0.3);
+  box-shadow: none;
+}
+
+.card--back.is-empty {
+  opacity: 0.3;
 }
 
 /* Back: a small azulejo-style tile pattern, drawn with gradients. */
@@ -456,6 +481,9 @@ select {
 
 .home__rules {
   justify-self: center;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .join-room label {
@@ -535,6 +563,82 @@ select {
 }
 .seat--left {
   grid-area: 2 / 1;
+}
+.seat--bottom-right {
+  grid-area: 3 / 3;
+}
+.seat--top-right {
+  grid-area: 1 / 3;
+}
+.seat--top-left {
+  grid-area: 1 / 1;
+}
+.seat--bottom-left {
+  grid-area: 3 / 1;
+}
+
+.no-team .seat__plate {
+  border-top-color: var(--wood-light);
+}
+
+/* ---------- game picker ---------- */
+
+.game-pick {
+  width: min(100%, 560px);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.game-pick--read {
+  display: block;
+  font-size: 1.1rem;
+}
+
+.game-pick__option {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding: 10px 14px;
+  border-radius: var(--radius-ui);
+  border: 2px solid rgb(255 255 255 / 0.25);
+  cursor: pointer;
+}
+
+.game-pick__option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.game-pick__option:has(input:focus-visible) {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.game-pick__option:has(input:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.game-pick__option.is-on {
+  background: var(--paper);
+  color: var(--graphite);
+  border-color: var(--paper);
+}
+
+.game-pick__name {
+  font-family: var(--serif);
+  font-size: 1.3rem;
+  font-weight: 800;
+}
+
+.game-pick__meta {
+  font-size: 0.9rem;
+  opacity: 0.8;
 }
 
 .seat__team {
@@ -1222,6 +1326,308 @@ select {
 
 .hand__card:focus-visible {
   outline-offset: 3px;
+}
+
+/* ---------- gringo table ---------- */
+
+.gbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 8px var(--gutter) 4px;
+}
+
+.gbar__round {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.gbar__title {
+  font-family: var(--serif);
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.gbar__meta {
+  color: var(--on-felt-muted);
+}
+
+/* The call is the one loud thing on the table: once per round, and it changes everything. */
+.gbar__called {
+  order: 3;
+  width: 100%;
+  padding: 6px 12px;
+  border-radius: var(--radius-ui);
+  background: var(--focus);
+  color: var(--felt-deep);
+  font-family: var(--serif);
+  font-weight: 800;
+  text-align: center;
+}
+
+.gboard {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+  padding: 4px var(--gutter);
+  overflow-y: auto;
+}
+
+.gopps {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 14px;
+}
+
+.gopp {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+
+.gopp .plate {
+  min-width: 0;
+  padding: 3px 10px 4px;
+  border-left-color: var(--wood-light);
+}
+
+.gslots {
+  display: flex;
+  gap: 4px;
+}
+
+.gslot {
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: var(--radius-card);
+  transition: transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.gslot:not(:disabled) {
+  cursor: pointer;
+}
+
+.gopp .gslot:not(:disabled) .card {
+  box-shadow:
+    0 0 0 2px rgb(255 255 255 / 0.55),
+    0 2px 4px rgb(0 0 0 / 0.25);
+}
+
+.gslot.is-picked {
+  transform: translateY(-8px);
+}
+
+.gslot.is-picked .card {
+  box-shadow:
+    0 0 0 3px var(--focus),
+    0 8px 16px rgb(0 0 0 / 0.45);
+}
+
+/* Cards taking part in someone's Jack or King: everyone sees which ones. */
+.gslot.is-involved .card {
+  box-shadow:
+    0 0 0 3px var(--team-b-on-felt),
+    0 2px 4px rgb(0 0 0 / 0.25);
+}
+
+.gcenter {
+  align-self: center;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding-bottom: 4px;
+}
+
+.gpiles {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.gpiles .card--table {
+  --w: clamp(50px, 14vw, 92px);
+}
+
+.gpile {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+
+.gpile__label {
+  font-size: 0.85rem;
+  color: var(--on-felt-muted);
+  max-width: 110px;
+  text-align: center;
+}
+
+.gpile--drawn .card {
+  box-shadow:
+    0 0 0 3px var(--focus),
+    0 10px 20px rgb(0 0 0 / 0.45);
+}
+
+.gpile--drawn .gpile__label {
+  color: var(--focus);
+  font-weight: 700;
+}
+
+/* A new card on the discard pile drops in, so a match is hard to miss. */
+.gdrop {
+  animation: gdrop 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes gdrop {
+  from {
+    transform: translateY(-18px) scale(1.06);
+  }
+}
+
+/* The draw lock after a discard, emptying left to right. */
+.glock {
+  width: min(220px, 60vw);
+  height: 4px;
+  border-radius: 2px;
+  background: rgb(255 255 255 / 0.15);
+  overflow: hidden;
+}
+
+.glock__bar {
+  display: block;
+  height: 100%;
+  background: var(--on-felt);
+  transform-origin: left;
+  animation: glock linear forwards;
+}
+
+@keyframes glock {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+.gstatus {
+  font-family: var(--serif);
+  font-size: 1.1rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.glast {
+  font-size: 0.9rem;
+  color: var(--on-felt-muted);
+  text-align: center;
+}
+
+.ghand .hand__bar {
+  min-height: 40px;
+  margin-bottom: 4px;
+}
+
+.gmine {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.gmine .gslot:not(:disabled):hover {
+  transform: translateY(-4px);
+}
+
+.gmine .gslot.is-picked,
+.gmine .gslot.is-picked:hover {
+  transform: translateY(-14px);
+}
+
+.gslot.is-matchable .card {
+  box-shadow:
+    0 0 0 2px var(--focus),
+    0 2px 4px rgb(0 0 0 / 0.25);
+}
+
+.gactions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.gmatch.is-on {
+  background: var(--on-felt);
+  color: var(--felt-deep);
+  border-color: var(--on-felt);
+}
+
+.ggringo {
+  border-color: var(--focus);
+  color: var(--focus);
+  font-family: var(--serif);
+  font-weight: 800;
+}
+
+/* Claiming an ability is a race against the lock: big, full width, can't be missed. */
+.gclaim {
+  width: 100%;
+  min-height: 52px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--focus);
+  border-color: var(--focus);
+  color: var(--felt-deep);
+  font-family: var(--serif);
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.gclaim__secs {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A card you may look at once: gold edge while it is up, so it reads as temporary. */
+.gslot.is-glimpse .card {
+  box-shadow:
+    0 0 0 3px var(--focus),
+    0 6px 14px rgb(0 0 0 / 0.4);
+}
+
+.gresult .is-winner th,
+.gresult .is-winner td:last-child {
+  color: var(--team-a);
+  font-weight: 800;
+}
+
+.gresult__cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.gresult__tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--focus);
+  color: var(--felt-deep);
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 700;
+  vertical-align: middle;
 }
 
 /* ---------- dialogs and results ---------- */

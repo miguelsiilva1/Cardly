@@ -23,7 +23,12 @@ export interface SuecaView {
   trumpCardId: string;
   turnSeat: number;
   trick: Trick;
-  completedTricks: CompletedTrick[];
+  /** Only the latest finished round of cards: earlier ones cannot be looked at again. */
+  lastTrick: CompletedTrick | null;
+  /** Rounds finished this hand. */
+  tricksDone: number;
+  /** Who played the trump card, and in which round. Null while it is still in the dealer's hand. */
+  trumpPlayed: { seat: number; round: number } | null;
   handCounts: number[];
   handPoints: TeamScore;
   handTricks: TeamScore;
@@ -50,7 +55,9 @@ export function viewFor(state: SuecaState, seat: number): SuecaView {
     trumpCardId: state.trumpCardId,
     turnSeat: state.turnSeat,
     trick: state.trick,
-    completedTricks: state.completedTricks,
+    lastTrick: state.completedTricks.at(-1) ?? null,
+    tricksDone: state.completedTricks.length,
+    trumpPlayed: findTrump(state),
     handCounts: state.hands.map((h) => h.length),
     handPoints: state.handPoints,
     handTricks: state.handTricks,
@@ -61,4 +68,12 @@ export function viewFor(state: SuecaState, seat: number): SuecaView {
     myHand,
     legalCardIds: myTurn ? getLegalCards(myHand, state.trick.ledSuit) : [],
   };
+}
+
+function findTrump(state: SuecaState): { seat: number; round: number } | null {
+  for (const t of [...state.completedTricks, state.trick]) {
+    const p = t.plays.find((x) => x.cardId === state.trumpCardId);
+    if (p) return { seat: p.seat, round: t.number };
+  }
+  return null;
 }
