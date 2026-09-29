@@ -168,12 +168,18 @@ All three services have free plans that need no credit card.
 
 4. Note the `*.workers.dev` URL printed by the deploy.
 
+After the first manual deploy, GitHub Actions (`.github/workflows/ci.yml`) typechecks and tests every push and pull request, and redeploys the game server on every push to `main`. It needs two repository secrets (**Settings > Secrets and variables > Actions**):
+
+- `CLOUDFLARE_API_TOKEN`: a Cloudflare API token from the "Edit Cloudflare Workers" template.
+- `CLOUDFLARE_ACCOUNT_ID`: the account ID shown by `npx wrangler whoami`.
+
 ### Web app (Vercel)
 
 1. Import the repository in Vercel.
 2. Settings: root directory `apps/web`, framework Vite, build command `npm run build`, output `dist`. Enable "Include files outside the root directory" so the workspace packages resolve.
 3. Environment variables: `VITE_SERVER_URL` (the Worker URL), `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
-4. `apps/web/vercel.json` sends every path to `index.html` (so `/sala/<code>` links work) and sets the security headers.
+4. Once the repository is connected, Vercel deploys every push to `main` and gives each pull request a preview URL.
+5. `apps/web/vercel.json` sends every path to `index.html` (so `/sala/<code>` links work) and sets the security headers.
 
 ### After the first deploy
 
