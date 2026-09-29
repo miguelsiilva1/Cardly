@@ -3,7 +3,7 @@ import { CLOSE_KICKED, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, type CreateRoomResp
 import type { sueca } from "@cardly/engine";
 import { allowedOrigins, MAX_CONNECTIONS, roomRequestAllowed } from "./gate";
 import { parseClientMessage } from "./parse";
-import { recordMatch, verifyAccessToken, type SupabaseEnv } from "./supabase";
+import { keepAlive, recordMatch, verifyAccessToken, type SupabaseEnv } from "./supabase";
 import {
   createRoom,
   handleAlarm,
@@ -211,5 +211,9 @@ export default {
 
     if (!roomRequestAllowed(request, allowedOrigins(env.ALLOWED_ORIGINS))) return new Response("Not Found", { status: 404 });
     return (await routePartykitRequest(request, env)) ?? new Response("Not Found", { status: 404 });
+  },
+
+  async scheduled(_controller, env, ctx) {
+    ctx.waitUntil(keepAlive(env));
   },
 } satisfies ExportedHandler<Env>;

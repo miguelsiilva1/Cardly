@@ -25,6 +25,21 @@ export async function verifyAccessToken(env: SupabaseEnv, token: string): Promis
   }
 }
 
+/**
+ * A free Supabase project pauses after a week without activity. One small
+ * query from the Worker's cron keeps it awake.
+ */
+export async function keepAlive(env: SupabaseEnv): Promise<void> {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) return;
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/matches?select=id&limit=1`, {
+    headers: {
+      apikey: env.SUPABASE_SECRET_KEY,
+      ...(env.SUPABASE_SECRET_KEY.startsWith("eyJ") ? { Authorization: `Bearer ${env.SUPABASE_SECRET_KEY}` } : {}),
+    },
+  });
+  if (!res.ok) console.error(`keep-alive failed: ${res.status}`);
+}
+
 export interface MatchRecord {
   game: "sueca" | "gringo";
   room_code: string;

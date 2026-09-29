@@ -195,6 +195,7 @@ After the first manual deploy, GitHub Actions (`.github/workflows/ci.yml`) typec
 - **Authentication.** Supabase session tokens are verified against the project's public keys (issuer and audience checked).
 - **Database.** Row level security: players read only the games they took part in. Clients cannot write; only the server's secret key can save a game, through one database function.
 - **Web headers.** Strict Content Security Policy, `frame-ancestors 'none'`, HSTS, `nosniff`, referrer and permissions policies.
+- **Keep-alive.** A free Supabase project pauses after a week without activity. The Worker's cron trigger (Mondays and Thursdays, 06:00 UTC) runs one small query to prevent that.
 - **Secrets.** Kept out of git (`.env.local`, `.dev.vars`); production secrets are stored with `wrangler secret`.
 
 ## Project structure
